@@ -7,10 +7,85 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
 }
 
+const PASSWORD_SALT = 'supabase-dashboard-salt'
+
+async function hashPassword(password: string) {
+  const encoder = new TextEncoder()
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(password),
+    'PBKDF2',
+    false,
+    ['deriveBits']
+  )
+
+  const hashBuffer = await crypto.subtle.deriveBits(
+    {
+      name: 'PBKDF2',
+      salt: encoder.encode(PASSWORD_SALT),
+      iterations: 100000,
+      hash: 'SHA-256',
+    },
+    keyMaterial,
+    256
+  )
+
+  return Array.from(new Uint8Array(hashBuffer))
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('')
+}
+
 serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
+  }
+
+  const url = new URL(req.url)
+  const path = url.pathname.replace('/api', '')
+  const method = req.method
+
+  console.log(`${method} ${path}`)
+
+  // Debug endpoint to test password hashing (public, no auth required)
+  if (path === '/debug/hash' && method === 'POST') {
+    try {
+      const body = await req.json()
+      const { password } = body
+
+      // Hash password using PBKDF2
+      const encoder = new TextEncoder()
+      const keyMaterial = await crypto.subtle.importKey(
+        'raw',
+        encoder.encode(password),
+        'PBKDF2',
+        false,
+        ['deriveBits']
+      )
+      const salt = encoder.encode('supabase-dashboard-salt')
+      const hashBuffer = await crypto.subtle.deriveBits(
+        {
+          name: 'PBKDF2',
+          salt: salt,
+          iterations: 100000,
+          hash: 'SHA-256'
+        },
+        keyMaterial,
+        256
+      )
+      const hashArray = Array.from(new Uint8Array(hashBuffer))
+      const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+
+      return new Response(
+        JSON.stringify({ password, hash: hashHex }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    } catch (error) {
+      return new Response(
+        JSON.stringify({ error: error.message }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
+      )
+    }
   }
 
   try {
@@ -24,12 +99,6 @@ serve(async (req) => {
       }
     )
 
-    const url = new URL(req.url)
-    const path = url.pathname.replace('/api', '')
-    const method = req.method
-
-    console.log(`${method} ${path}`)
-
     // Health check
     if (path === '/health') {
       const { data, error } = await supabaseClient.from('users').select('count').limit(1)
@@ -42,29 +111,32 @@ serve(async (req) => {
 
     // Auth endpoints
     if (path === '/auth/login' && method === 'POST') {
-      const body = await req.json()
-      const { username, password } = body
+      try {
+        const body = await req.json()
+        const { username, password } = body
 
-      // Hash password (simplified - in production use proper bcrypt)
-      const encoder = new TextEncoder()
-      const data = encoder.encode(password + 'salt')
-      const hashBuffer = await crypto.subtle.digest('SHA-256', data)
-      const hashArray = Array.from(new Uint8Array(hashBuffer))
-      const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+        console.log('Login attempt for username:', username)
 
-      const { data: user, error } = await supabaseClient
-        .from('users')
-        .select('*')
-        .eq('username', username)
-        .eq('password_hash', hashHex)
-        .single()
+        const hashHex = await hashPassword(password)
 
-      if (error || !user) {
-        return new Response(
-          JSON.stringify({ success: false, error: 'Invalid credentials' }),
-          { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 401 }
-        )
-      }
+        console.log('Generated password hash:', hashHex)
+
+        const { data: user, error } = await supabaseClient
+          .from('users')
+          .select('*')
+          .eq('username', username)
+          .eq('password_hash', hashHex)
+          .single()
+
+        console.log('User lookup result:', { user, error })
+
+        if (error || !user) {
+          console.log('Login failed: Invalid credentials')
+          return new Response(
+            JSON.stringify({ success: false, error: 'Invalid credentials', debug: { username, hashGenerated: hashHex } }),
+            { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 401 }
+          )
+        }
 
       if (user.status !== 'active') {
         return new Response(
@@ -94,23 +166,30 @@ serve(async (req) => {
       return new Response(
         JSON.stringify({
           success: true,
+          token,
           data: {
-            user: {
-              id: user.id,
-              username: user.username,
-              mahashakha: user.mahashakha,
-              shakha: user.shakha,
-              role: user.role,
-              status: user.status
-            },
-            token: token
+            id: user.id,
+            username: user.username,
+            mahashakha: user.mahashakha,
+            shakha: user.shakha,
+            role: user.role,
+            status: user.status
           }
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
+    } catch (error) {
+      console.error('Login error:', error)
+      return new Response(
+        JSON.stringify({ success: false, error: 'Login failed', details: error.message }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
+      )
     }
+  }
 
-    if (path === '/auth/logout' && method === 'POST') {
+  // Logout endpoint
+  if (path === '/auth/logout' && method === 'POST') {
+    try {
       const body = await req.json()
       const { username } = body
 
@@ -123,249 +202,256 @@ serve(async (req) => {
         JSON.stringify({ success: true }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
-    }
-
-    // Get token from Authorization header
-    const authHeader = req.headers.get('Authorization')
-    const token = authHeader?.replace('Bearer ', '')
-
-    if (!token) {
+    } catch (error) {
+      console.error('Logout error:', error)
       return new Response(
-        JSON.stringify({ success: false, error: 'Authentication required' }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 401 }
+        JSON.stringify({ success: false, error: 'Logout failed' }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
       )
     }
+  }
 
-    // Verify token and get user
-    const { data: currentUser, error: userError } = await supabaseClient
-      .from('users')
-      .select('*')
-      .eq('session_token', token)
-      .gte('session_expires_at', new Date().toISOString())
-      .single()
+  // Get token from Authorization header
+  const authHeader = req.headers.get('Authorization')
+  const token = authHeader?.replace('Bearer ', '')
 
-    if (userError || !currentUser || currentUser.status !== 'active') {
-      return new Response(
-        JSON.stringify({ success: false, error: 'Invalid or expired token' }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 401 }
-      )
-    }
-
-    // Generic CRUD handler for all tables
-    const tables = [
-      'ujiri_entries',
-      'office_monitoring',
-      'dress_time_monitoring',
-      'service_survey',
-      'investigations',
-      'technical_audit',
-      'project_monitoring',
-      'calendar_events',
-      'promotional_programs',
-      'annual_programs'
-    ]
-
-    // Extract table name from path
-    const tableMatch = path.match(/^\/([a-z_]+)(?:\/(\d+))?/)
-    if (!tableMatch) {
-      return new Response(
-        JSON.stringify({ success: false, error: 'Invalid endpoint' }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 404 }
-      )
-    }
-
-    const tableName = tableMatch[1]
-    const id = tableMatch[2]
-
-    if (!tables.includes(tableName)) {
-      return new Response(
-        JSON.stringify({ success: false, error: 'Invalid table' }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
-      )
-    }
-
-    // Apply role-based filtering
-    let query = supabaseClient.from(tableName)
-    const isAdmin = currentUser.role === 'admin'
-
-    if (!isAdmin) {
-      query = query.eq('owner_mahashakha', currentUser.mahashakha)
-      if (currentUser.role === 'shakha') {
-        query = query.eq('owner_shakha', currentUser.shakha)
-      }
-    }
-
-    // GET requests
-    if (method === 'GET') {
-      if (id) {
-        const { data, error } = await query.select('*').eq('id', id).single()
-        if (error) throw error
-        return new Response(
-          JSON.stringify({ success: true, data }),
-          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        )
-      } else {
-        // Handle filters from URL params
-        const filters = Object.fromEntries(url.searchParams.entries())
-        let filteredQuery = query
-
-        for (const [key, value] of Object.entries(filters)) {
-          filteredQuery = filteredQuery.eq(key, value)
-        }
-
-        const { data, error } = await filteredQuery.select('*').order('created_at', { ascending: false })
-        if (error) throw error
-        return new Response(
-          JSON.stringify({ success: true, data }),
-          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        )
-      }
-    }
-
-    // POST requests
-    if (method === 'POST') {
-      const body = await req.json()
-      const dataToInsert = {
-        ...body,
-        owner_user_id: currentUser.id,
-        owner_mahashakha: currentUser.mahashakha,
-        owner_shakha: currentUser.shakha
-      }
-
-      const { data, error } = await supabaseClient
-        .from(tableName)
-        .insert(dataToInsert)
-        .select()
-        .single()
-
-      if (error) throw error
-
-      // Log the creation
-      await supabaseClient.from('audit_logs').insert({
-        instance_id: String(data.id),
-        instance_name: tableName,
-        activity: 'create',
-        username: currentUser.username,
-        status: 'success'
-      })
-
-      return new Response(
-        JSON.stringify({ success: true, data }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
-    }
-
-    // PUT requests
-    if (method === 'PUT' && id) {
-      const body = await req.json()
-      const { data, error } = await supabaseClient
-        .from(tableName)
-        .update(body)
-        .eq('id', id)
-        .select()
-        .single()
-
-      if (error) throw error
-
-      // Log the update
-      await supabaseClient.from('audit_logs').insert({
-        instance_id: String(id),
-        instance_name: tableName,
-        activity: 'update',
-        username: currentUser.username,
-        status: 'success'
-      })
-
-      return new Response(
-        JSON.stringify({ success: true, data }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
-    }
-
-    // DELETE requests
-    if (method === 'DELETE' && id) {
-      const { error } = await supabaseClient
-        .from(tableName)
-        .delete()
-        .eq('id', id)
-
-      if (error) throw error
-
-      // Log the deletion
-      await supabaseClient.from('audit_logs').insert({
-        instance_id: String(id),
-        instance_name: tableName,
-        activity: 'delete',
-        username: currentUser.username,
-        status: 'success'
-      })
-
-      return new Response(
-        JSON.stringify({ success: true }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
-    }
-
-    // Users endpoints (admin only)
-    if (path === '/users' && method === 'GET') {
-      if (currentUser.role !== 'admin') {
-        return new Response(
-          JSON.stringify({ success: false, error: 'Admin access required' }),
-          { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 403 }
-        )
-      }
-
-      const { data, error } = await supabaseClient
-        .from('users')
-        .select('id, username, mahashakha, shakha, role, status, created_at, updated_at')
-        .order('created_at', { ascending: false })
-
-      if (error) throw error
-      return new Response(
-        JSON.stringify({ success: true, data }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
-    }
-
-    if (path.startsWith('/users/') && method === 'DELETE') {
-      if (currentUser.role !== 'admin') {
-        return new Response(
-          JSON.stringify({ success: false, error: 'Admin access required' }),
-          { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 403 }
-        )
-      }
-
-      const userId = path.split('/')[2]
-      const { error } = await supabaseClient
-        .from('users')
-        .delete()
-        .eq('id', userId)
-
-      if (error) throw error
-      return new Response(
-        JSON.stringify({ success: true }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
-    }
-
-    // Audit logs endpoint
-    if (path === '/audit-logs' && method === 'GET') {
-      const { data, error } = await supabaseClient
-        .from('audit_logs')
-        .select('*')
-        .order('created_at', { ascending: false })
-
-      if (error) throw error
-      return new Response(
-        JSON.stringify({ success: true, data }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
-    }
-
+  if (!token) {
     return new Response(
-      JSON.stringify({ success: false, error: 'Endpoint not found' }),
+      JSON.stringify({ success: false, error: 'Authentication required' }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 401 }
+    )
+  }
+
+  // Verify token and get user
+  const { data: currentUser, error: userError } = await supabaseClient
+    .from('users')
+    .select('*')
+    .eq('session_token', token)
+    .gte('session_expires_at', new Date().toISOString())
+    .single()
+
+  if (userError || !currentUser || currentUser.status !== 'active') {
+    return new Response(
+      JSON.stringify({ success: false, error: 'Invalid or expired token' }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 401 }
+    )
+  }
+
+  // Generic CRUD handler for all tables
+  const tables = [
+    'ujiri_entries',
+    'office_monitoring',
+    'dress_time_monitoring',
+    'service_survey',
+    'investigations',
+    'technical_audit',
+    'project_monitoring',
+    'calendar_events',
+    'promotional_programs',
+    'annual_programs'
+  ]
+
+  // Extract table name from path
+  const tableMatch = path.match(/^\/([a-z_]+)(?:\/(\d+))?/)
+  if (!tableMatch) {
+    return new Response(
+      JSON.stringify({ success: false, error: 'Invalid endpoint' }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 404 }
     )
+  }
+
+  const tableName = tableMatch[1]
+  const id = tableMatch[2]
+
+  if (!tables.includes(tableName)) {
+    return new Response(
+      JSON.stringify({ success: false, error: 'Invalid table' }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
+    )
+  }
+
+  // Apply role-based filtering
+  let query = supabaseClient.from(tableName)
+  const isAdmin = currentUser.role === 'admin'
+
+  if (!isAdmin) {
+    query = query.eq('owner_mahashakha', currentUser.mahashakha)
+    if (currentUser.role === 'shakha') {
+      query = query.eq('owner_shakha', currentUser.shakha)
+    }
+  }
+
+  // GET requests
+  if (method === 'GET') {
+    if (id) {
+      const { data, error } = await query.select('*').eq('id', id).single()
+      if (error) throw error
+      return new Response(
+        JSON.stringify({ success: true, data }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    } else {
+      // Handle filters from URL params
+      const filters = Object.fromEntries(url.searchParams.entries())
+      let filteredQuery = query
+
+      for (const [key, value] of Object.entries(filters)) {
+        filteredQuery = filteredQuery.eq(key, value)
+      }
+
+      const { data, error } = await filteredQuery.select('*').order('created_at', { ascending: false })
+      if (error) throw error
+      return new Response(
+        JSON.stringify({ success: true, data }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+  }
+
+  // POST requests
+  if (method === 'POST') {
+    const body = await req.json()
+    const dataToInsert = {
+      ...body,
+      owner_user_id: currentUser.id,
+      owner_mahashakha: currentUser.mahashakha,
+      owner_shakha: currentUser.shakha
+    }
+
+    const { data, error } = await supabaseClient
+      .from(tableName)
+      .insert(dataToInsert)
+      .select()
+      .single()
+
+    if (error) throw error
+
+    // Log the creation
+    await supabaseClient.from('audit_logs').insert({
+      instance_id: String(data.id),
+      instance_name: tableName,
+      activity: 'create',
+      username: currentUser.username,
+      status: 'success'
+    })
+
+    return new Response(
+      JSON.stringify({ success: true, data }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    )
+  }
+
+  // PUT requests
+  if (method === 'PUT' && id) {
+    const body = await req.json()
+    const { data, error } = await supabaseClient
+      .from(tableName)
+      .update(body)
+      .eq('id', id)
+      .select()
+      .single()
+
+    if (error) throw error
+
+    // Log the update
+    await supabaseClient.from('audit_logs').insert({
+      instance_id: String(id),
+      instance_name: tableName,
+      activity: 'update',
+      username: currentUser.username,
+      status: 'success'
+    })
+
+    return new Response(
+      JSON.stringify({ success: true, data }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    )
+  }
+
+  // DELETE requests
+  if (method === 'DELETE' && id) {
+    const { error } = await supabaseClient
+      .from(tableName)
+      .delete()
+      .eq('id', id)
+
+    if (error) throw error
+
+    // Log the deletion
+    await supabaseClient.from('audit_logs').insert({
+      instance_id: String(id),
+      instance_name: tableName,
+      activity: 'delete',
+      username: currentUser.username,
+      status: 'success'
+    })
+
+    return new Response(
+      JSON.stringify({ success: true }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    )
+  }
+
+  // Users endpoints (admin only)
+  if (path === '/users' && method === 'GET') {
+    if (currentUser.role !== 'admin') {
+      return new Response(
+        JSON.stringify({ success: false, error: 'Admin access required' }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 403 }
+      )
+    }
+
+    const { data, error } = await supabaseClient
+      .from('users')
+      .select('id, username, mahashakha, shakha, role, status, created_at, updated_at')
+      .order('created_at', { ascending: false })
+
+    if (error) throw error
+    return new Response(
+      JSON.stringify({ success: true, data }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    )
+  }
+
+  if (path.startsWith('/users/') && method === 'DELETE') {
+    if (currentUser.role !== 'admin') {
+      return new Response(
+        JSON.stringify({ success: false, error: 'Admin access required' }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 403 }
+      )
+    }
+
+    const userId = path.split('/')[2]
+    const { error } = await supabaseClient
+      .from('users')
+      .delete()
+      .eq('id', userId)
+
+    if (error) throw error
+    return new Response(
+      JSON.stringify({ success: true }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    )
+  }
+
+  // Audit logs endpoint
+  if (path === '/audit-logs' && method === 'GET') {
+    const { data, error } = await supabaseClient
+      .from('audit_logs')
+      .select('*')
+      .order('created_at', { ascending: false })
+
+    if (error) throw error
+    return new Response(
+      JSON.stringify({ success: true, data }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    )
+  }
+
+  return new Response(
+    JSON.stringify({ success: false, error: 'Endpoint not found' }),
+    { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 404 }
+  )
 
   } catch (error) {
     console.error('Error:', error)

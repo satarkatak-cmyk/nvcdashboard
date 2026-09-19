@@ -10,7 +10,9 @@ const crypto = require('crypto');
 const { promisify } = require('util');
 
 const scryptAsync = promisify(crypto.scrypt);
+const pbkdf2Async = promisify(crypto.pbkdf2);
 const authSessions = new Map();
+const PASSWORD_SALT = 'supabase-dashboard-salt';
 
 const databaseHost = process.env.DB_HOST || 'localhost';
 const isSupabaseDatabase = databaseHost.endsWith('.supabase.co');
@@ -478,16 +480,23 @@ function validateUserInput(data, requirePassword = true) {
 }
 
 async function hashUserPassword(password) {
-    const salt = crypto.randomBytes(16).toString('hex');
-    const derivedKey = await scryptAsync(password, salt, 64);
-    return `${salt}:${derivedKey.toString('hex')}`;
+    const salt = Buffer.from(PASSWORD_SALT, 'utf8');
+    const derivedKey = await pbkdf2Async(password, salt, 100000, 32, 'sha256');
+    return derivedKey.toString('hex');
 }
 
 async function verifyUserPassword(password, storedHash) {
-    const [salt, key] = String(storedHash || '').split(':');
-    if (!salt || !key) return false;
-    const derivedKey = await scryptAsync(password, salt, 64);
-    return crypto.timingSafeEqual(Buffer.from(key, 'hex'), derivedKey);
+    if (!storedHash) return false;
+
+    if (storedHash.includes(':')) {
+        const [salt, key] = String(storedHash).split(':');
+        if (!salt || !key) return false;
+        const derivedKey = await scryptAsync(password, salt, 64);
+        return crypto.timingSafeEqual(Buffer.from(key, 'hex'), derivedKey);
+    }
+
+    const expectedHash = await hashUserPassword(password);
+    return crypto.timingSafeEqual(Buffer.from(String(storedHash), 'hex'), Buffer.from(expectedHash, 'hex'));
 }
 
 const publicUserFields = `
