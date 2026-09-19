@@ -3,6 +3,16 @@
 
 class APIClient {
     constructor() {
+        // Check for forced API URL (highest priority)
+        const forceApiUrl = typeof window !== 'undefined' && window.FORCE_API_URL;
+        
+        if (forceApiUrl) {
+            this.baseURL = forceApiUrl;
+            console.log('Using forced API URL:', this.baseURL);
+            this.headers = { 'Content-Type': 'application/json' };
+            return;
+        }
+        
         // Force Supabase URL on deployed environment (Netlify, etc.)
         const isDeployed = typeof window !== 'undefined' && 
             window.location.hostname !== 'localhost' && 
