@@ -3,16 +3,7 @@
 
 class APIClient {
     constructor() {
-        // Handle both browser and Node.js environments
-        const configuredBaseURL = (typeof process !== 'undefined' && process.env && process.env.API_BASE_URL)
-            ? process.env.API_BASE_URL
-            : '';
-        
-        // Check for deployed environment via window.SUPABASE_URL or custom config
-        const supabaseUrl = typeof window !== 'undefined' && window.SUPABASE_URL;
-        const customApiUrl = typeof window !== 'undefined' && window.API_BASE_URL;
-        
-        // Check if we're on Netlify or other deployed environment (more aggressive check)
+        // Force Supabase URL on deployed environment (Netlify, etc.)
         const isDeployed = typeof window !== 'undefined' && 
             window.location.hostname !== 'localhost' && 
             window.location.hostname !== '127.0.0.1' &&
@@ -20,29 +11,38 @@ class APIClient {
             !window.location.hostname.startsWith('10.') &&
             !window.location.hostname.startsWith('172.');
         
-        const browserNeedsBackendOrigin = typeof window !== 'undefined' &&
-            (window.location.protocol === 'file:' ||
-                (['localhost', '127.0.0.1'].includes(window.location.hostname) && window.location.port !== '3000'));
-        
-        // Priority: custom API URL > deployed detection > Supabase URL > configured base URL > localhost
-        if (customApiUrl) {
-            this.baseURL = customApiUrl;
-        } else if (isDeployed) {
-            // On deployed environment, use Supabase directly instead of relying on Netlify redirect
-            const projectRef = supabaseUrl?.match(/https:\/\/([^.]+)\.supabase\.co/)?.[1];
-            this.baseURL = projectRef ? `https://${projectRef}.supabase.co/functions/v1/api` : '/api';
-        } else if (supabaseUrl) {
-            const projectRef = supabaseUrl.match(/https:\/\/([^.]+)\.supabase\.co/)?.[1];
-            this.baseURL = projectRef ? `https://${projectRef}.supabase.co/functions/v1/api` : '/api';
-        } else if (configuredBaseURL) {
-            this.baseURL = configuredBaseURL;
-        } else if (browserNeedsBackendOrigin) {
-            this.baseURL = 'http://localhost:3000/api';
+        // On deployed environment, always use Supabase directly
+        if (isDeployed) {
+            this.baseURL = 'https://nfrteauxfgoowxulxvdc.supabase.co/functions/v1/api';
+            console.log('Deployed environment detected, using Supabase URL directly:', this.baseURL);
         } else {
-            this.baseURL = '/api';
+            // Local development
+            const configuredBaseURL = (typeof process !== 'undefined' && process.env && process.env.API_BASE_URL)
+                ? process.env.API_BASE_URL
+                : '';
+            
+            const supabaseUrl = typeof window !== 'undefined' && window.SUPABASE_URL;
+            const customApiUrl = typeof window !== 'undefined' && window.API_BASE_URL;
+            
+            const browserNeedsBackendOrigin = typeof window !== 'undefined' &&
+                (window.location.protocol === 'file:' ||
+                    (['localhost', '127.0.0.1'].includes(window.location.hostname) && window.location.port !== '3000'));
+            
+            if (customApiUrl) {
+                this.baseURL = customApiUrl;
+            } else if (supabaseUrl) {
+                const projectRef = supabaseUrl.match(/https:\/\/([^.]+)\.supabase\.co/)?.[1];
+                this.baseURL = projectRef ? `https://${projectRef}.supabase.co/functions/v1/api` : '/api';
+            } else if (configuredBaseURL) {
+                this.baseURL = configuredBaseURL;
+            } else if (browserNeedsBackendOrigin) {
+                this.baseURL = 'http://localhost:3000/api';
+            } else {
+                this.baseURL = '/api';
+            }
         }
         
-        console.log('API Client initialized with baseURL:', this.baseURL, 'hostname:', window?.location?.hostname, 'isDeployed:', isDeployed);
+        console.log('API Client initialized with baseURL:', this.baseURL, 'hostname:', window?.location?.hostname);
         
         this.headers = {
             'Content-Type': 'application/json'
