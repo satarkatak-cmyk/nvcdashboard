@@ -12,13 +12,22 @@ class APIClient {
         const supabaseUrl = typeof window !== 'undefined' && window.SUPABASE_URL;
         const customApiUrl = typeof window !== 'undefined' && window.API_BASE_URL;
         
+        // Check if we're on Netlify or other deployed environment
+        const isDeployed = typeof window !== 'undefined' && 
+            window.location.hostname !== 'localhost' && 
+            window.location.hostname !== '127.0.0.1' &&
+            !window.location.hostname.startsWith('192.168.');
+        
         const browserNeedsBackendOrigin = typeof window !== 'undefined' &&
             (window.location.protocol === 'file:' ||
                 (['localhost', '127.0.0.1'].includes(window.location.hostname) && window.location.port !== '3000'));
         
-        // Priority: custom API URL > Supabase URL > configured base URL > localhost
+        // Priority: custom API URL > deployed detection > Supabase URL > configured base URL > localhost
         if (customApiUrl) {
             this.baseURL = customApiUrl;
+        } else if (isDeployed) {
+            // On deployed environment, always use relative path which will be redirected by netlify.toml
+            this.baseURL = '/api';
         } else if (supabaseUrl) {
             const projectRef = supabaseUrl.match(/https:\/\/([^.]+)\.supabase\.co/)?.[1];
             this.baseURL = projectRef ? `https://${projectRef}.supabase.co/functions/v1/api` : '/api';
@@ -29,6 +38,8 @@ class APIClient {
         } else {
             this.baseURL = '/api';
         }
+        
+        console.log('API Client initialized with baseURL:', this.baseURL, 'isDeployed:', isDeployed);
         
         this.headers = {
             'Content-Type': 'application/json'
