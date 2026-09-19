@@ -12,11 +12,13 @@ class APIClient {
         const supabaseUrl = typeof window !== 'undefined' && window.SUPABASE_URL;
         const customApiUrl = typeof window !== 'undefined' && window.API_BASE_URL;
         
-        // Check if we're on Netlify or other deployed environment
+        // Check if we're on Netlify or other deployed environment (more aggressive check)
         const isDeployed = typeof window !== 'undefined' && 
             window.location.hostname !== 'localhost' && 
             window.location.hostname !== '127.0.0.1' &&
-            !window.location.hostname.startsWith('192.168.');
+            !window.location.hostname.startsWith('192.168.') &&
+            !window.location.hostname.startsWith('10.') &&
+            !window.location.hostname.startsWith('172.');
         
         const browserNeedsBackendOrigin = typeof window !== 'undefined' &&
             (window.location.protocol === 'file:' ||
@@ -26,8 +28,9 @@ class APIClient {
         if (customApiUrl) {
             this.baseURL = customApiUrl;
         } else if (isDeployed) {
-            // On deployed environment, always use relative path which will be redirected by netlify.toml
-            this.baseURL = '/api';
+            // On deployed environment, use Supabase directly instead of relying on Netlify redirect
+            const projectRef = supabaseUrl?.match(/https:\/\/([^.]+)\.supabase\.co/)?.[1];
+            this.baseURL = projectRef ? `https://${projectRef}.supabase.co/functions/v1/api` : '/api';
         } else if (supabaseUrl) {
             const projectRef = supabaseUrl.match(/https:\/\/([^.]+)\.supabase\.co/)?.[1];
             this.baseURL = projectRef ? `https://${projectRef}.supabase.co/functions/v1/api` : '/api';
@@ -39,7 +42,7 @@ class APIClient {
             this.baseURL = '/api';
         }
         
-        console.log('API Client initialized with baseURL:', this.baseURL, 'isDeployed:', isDeployed);
+        console.log('API Client initialized with baseURL:', this.baseURL, 'hostname:', window?.location?.hostname, 'isDeployed:', isDeployed);
         
         this.headers = {
             'Content-Type': 'application/json'

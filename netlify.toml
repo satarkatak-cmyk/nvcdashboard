@@ -7,6 +7,7 @@
   to = "https://nfrteauxfgoowxulxvdc.supabase.co/functions/v1/api/:splat"
   status = 200
   force = true
+  signed = false
 
 [[headers]]
   for = "/*"
