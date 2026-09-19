@@ -1,0 +1,25 @@
+{
+  "name": "risk-map-dashboard",
+  "version": "1.0.0",
+  "description": "राष्ट्रिय सतर्कता केन्द्र - Dashboard System with PostgreSQL",
+  "main": "index.html",
+  "scripts": {
+    "start": "node server/server.js",
+    "dev": "nodemon server/server.js",
+    "init-db": "node database/init-db.js",
+    "install-deps": "cd server && npm install"
+  },
+  "keywords": [
+    "dashboard",
+    "monitoring",
+    "nepal",
+    "government",
+    "postgresql"
+  ],
+  "author": "राष्ट्रिय सतर्कता केन्द्र",
+  "license": "ISC",
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "pg": "^8.23.0"
+  }
+}
