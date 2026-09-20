@@ -35,6 +35,26 @@ async function hashPassword(password: string) {
     .join('')
 }
 
+async function fetchAll(query: any) {
+  let allData: any[] = []
+  let from = 0
+  const step = 1000
+  let hasMore = true
+  while (hasMore) {
+    const { data, error } = await query.range(from, from + step - 1)
+    if (error) throw error
+    if (data && data.length > 0) {
+      allData = allData.concat(data)
+    }
+    if (!data || data.length < step) {
+      hasMore = false
+    } else {
+      from += step
+    }
+  }
+  return { data: allData, error: null }
+}
+
 serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
@@ -42,7 +62,9 @@ serve(async (req) => {
   }
 
   const url = new URL(req.url)
-  const path = url.pathname.replace('/api', '')
+  const apiMatch = url.pathname.match(/\/api(.*)/)
+  let path = apiMatch ? apiMatch[1] : url.pathname
+  if (!path.startsWith('/')) path = '/' + path
   const method = req.method
 
   console.log(`${method} ${path}`)
@@ -90,13 +112,8 @@ serve(async (req) => {
 
   try {
     const supabaseClient = createClient(
-      Deno.env.get('PROJECT_SUPABASE_URL') ?? '',
-      Deno.env.get('PROJECT_SUPABASE_ANON_KEY') ?? '',
-      {
-        global: {
-          headers: { Authorization: req.headers.get('Authorization') ?? '' },
-        },
-      }
+      Deno.env.get('SUPABASE_URL') ?? Deno.env.get('PROJECT_SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? Deno.env.get('PROJECT_SUPABASE_SERVICE_ROLE_KEY') ?? Deno.env.get('PROJECT_SUPABASE_ANON_KEY') ?? ''
     )
 
     // Health check
@@ -252,44 +269,54 @@ serve(async (req) => {
   const authHeader = req.headers.get('Authorization')
   const token = authHeader?.replace('Bearer ', '')
 
-  if (!token) {
+  const isPublicUjuri = (path === '/ujuri' || path === '/ujuri/statistics') && method === 'GET'
+
+  if (!token && !isPublicUjuri) {
     return new Response(
       JSON.stringify({ success: false, error: 'Authentication required' }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 401 }
     )
   }
 
-  // Verify token and get user
-  const { data: currentUser, error: userError } = await supabaseClient
-    .from('users')
-    .select('*')
-    .eq('session_token', token)
-    .gte('session_expires_at', new Date().toISOString())
-    .single()
+  // Verify token and get user (if token exists)
+  let currentUser = null
+  let userError = null
+  
+  if (token) {
+    const { data, error } = await supabaseClient
+      .from('users')
+      .select('*')
+      .eq('session_token', token)
+      .gte('session_expires_at', new Date().toISOString())
+      .single()
+      
+    currentUser = data
+    userError = error
+  }
 
-  if (userError || !currentUser || currentUser.status !== 'active') {
+  if (token && (userError || !currentUser || currentUser.status !== 'active')) {
     return new Response(
       JSON.stringify({ success: false, error: 'Invalid or expired token' }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 401 }
     )
   }
 
-  // Generic CRUD handler for all tables
-  const tables = [
-    'ujiri_entries',
-    'office_monitoring',
-    'dress_time_monitoring',
-    'service_survey',
-    'investigations',
-    'technical_audit',
-    'project_monitoring',
-    'calendar_events',
-    'promotional_programs',
-    'annual_programs'
-  ]
+  // Route to table mapping
+  const routeToTable: Record<string, string> = {
+    'ujuri': 'ujiri_entries',
+    'office-monitoring': 'office_monitoring',
+    'dress-time': 'dress_time_monitoring',
+    'survey': 'service_survey',
+    'investigations': 'investigations',
+    'technical-audit': 'technical_audit',
+    'project-monitoring': 'project_monitoring',
+    'calendar-events': 'calendar_events',
+    'promotional-programs': 'promotional_programs',
+    'annual-programs': 'annual_programs'
+  }
 
-  // Extract table name from path
-  const tableMatch = path.match(/^\/([a-z_]+)(?:\/(\d+))?/)
+  // Extract route name from path
+  const tableMatch = path.match(/^\/([a-z_-]+)(?:\/(statistics|\d+))?/)
   if (!tableMatch) {
     return new Response(
       JSON.stringify({ success: false, error: 'Invalid endpoint' }),
@@ -297,31 +324,158 @@ serve(async (req) => {
     )
   }
 
-  const tableName = tableMatch[1]
-  const id = tableMatch[2]
+  const routeName = tableMatch[1]
+  const idOrAction = tableMatch[2]
+  const id = idOrAction
 
-  if (!tables.includes(tableName)) {
+  const tableName = routeToTable[routeName]
+
+  if (!tableName) {
     return new Response(
       JSON.stringify({ success: false, error: 'Invalid table' }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
     )
   }
 
-  // Apply role-based filtering
-  let query = supabaseClient.from(tableName)
-  const isAdmin = currentUser.role === 'admin'
+  // Apply role-based filtering (Only applicable for GET requests in this block)
+  let baseQuery = supabaseClient.from(tableName).select('*')
+  const isAdmin = !currentUser || currentUser.role === 'admin'
 
   if (!isAdmin) {
-    query = query.eq('owner_mahashakha', currentUser.mahashakha)
+    baseQuery = baseQuery.eq('owner_mahashakha', currentUser.mahashakha)
     if (currentUser.role === 'shakha') {
-      query = query.eq('owner_shakha', currentUser.shakha)
+      baseQuery = baseQuery.eq('owner_shakha', currentUser.shakha)
     }
   }
 
   // GET requests
   if (method === 'GET') {
-    if (id) {
-      const { data, error } = await query.select('*').eq('id', id).single()
+    if (idOrAction === 'statistics') {
+      const { data, error } = await fetchAll(baseQuery)
+      if (error) throw error
+
+      let stats: any = {}
+      if (tableName === 'office_monitoring') {
+        const total = data.length
+        const avg = total > 0 ? data.reduce((s: number, d: any) => s + (Number(d.overall_performance) || 0), 0) / total : 0
+        const byDistrict: Record<string, number> = {}
+        const byOffice: Record<string, number> = {}
+        data.forEach((d: any) => {
+          if (d.district) byDistrict[d.district] = (byDistrict[d.district] || 0) + 1
+          if (d.office_type) byOffice[d.office_type] = (byOffice[d.office_type] || 0) + 1
+        })
+        stats = {
+          total,
+          average_performance: avg,
+          by_district: Object.entries(byDistrict).map(([district, count]) => ({ district, count })),
+          by_office_type: Object.entries(byOffice).map(([office_type, count]) => ({ office_type, count }))
+        }
+      } else if (tableName === 'technical_audit') {
+        const total = data.length
+        const in_progress = data.filter((d: any) => String(d.status).toLowerCase() === 'in_progress' || String(d.status) === 'चालु').length
+        const completed = data.filter((d: any) => String(d.status).toLowerCase() === 'completed' || String(d.status) === 'सम्पन्न').length
+        const avg = total > 0 ? data.reduce((s: number, d: any) => s + (Number(d.quality_score) || 0), 0) / total : 0
+        const byProject: Record<string, number> = {}
+        data.forEach((d: any) => {
+          const pt = String(d.project_type || 'अन्य').trim()
+          byProject[pt] = (byProject[pt] || 0) + 1
+        })
+        stats = {
+          total,
+          in_progress,
+          completed,
+          average_quality: avg,
+          by_project_type: Object.entries(byProject).map(([project_type, count]) => ({ project_type, count }))
+        }
+      } else if (tableName === 'project_monitoring') {
+        const total = data.length
+        const on_track = data.filter((d: any) => String(d.status).toLowerCase() === 'on_track' || String(d.status) === 'समयमै').length
+        const delayed = data.filter((d: any) => String(d.status).toLowerCase() === 'delayed' || String(d.status) === 'ढिलाइ').length
+        const avg = total > 0 ? data.reduce((s: number, d: any) => s + (Number(d.physical_progress) || 0), 0) / total : 0
+        const byDistrict: Record<string, number> = {}
+        data.forEach((d: any) => {
+          if (d.district) byDistrict[d.district] = (byDistrict[d.district] || 0) + 1
+        })
+        stats = {
+          total, on_track, delayed, average_progress: avg,
+          by_district: Object.entries(byDistrict).map(([district, count]) => ({ district, count }))
+        }
+      } else if (tableName === 'dress_time_monitoring') {
+        const total = data.length
+        const issues_found = data.filter((d: any) => Number(d.action_recommended) > 0 || (d.issues_found && d.issues_found.length > 0)).length
+        
+        const time_violations = data.reduce((s: number, d: any) => s + (Number(d.time_violation_count) || 0), 0)
+        const dress_violations = data.reduce((s: number, d: any) => s + (Number(d.dress_violation_count) || 0), 0)
+        const avg_violations = total > 0 ? data.reduce((s: number, d: any) => s + (Number(d.total_violations) || 0), 0) / total : 0
+        
+        const byDistrict: Record<string, number> = {}
+        data.forEach((d: any) => {
+          if (d.district) byDistrict[d.district] = (byDistrict[d.district] || 0) + 1
+        })
+
+        stats = { 
+          total, issues_found, 
+          time_violations, dress_violations, 
+          average_violations: avg_violations,
+          by_district: Object.entries(byDistrict).map(([district, count]) => ({ district, count }))
+        }
+      } else if (tableName === 'service_survey') {
+        const total = data.length
+        const avg_satisfaction = total > 0 ? data.reduce((s: number, d: any) => s + (Number(d.overall_satisfaction) || 0), 0) / total : 0
+        const avg_quality = total > 0 ? data.reduce((s: number, d: any) => s + (Number(d.service_quality) || 0), 0) / total : 0
+        const avg_behavior = total > 0 ? data.reduce((s: number, d: any) => s + (Number(d.staff_behavior) || 0), 0) / total : 0
+        
+        const byDistrict: Record<string, number> = {}
+        const byServiceType: Record<string, number> = {}
+        data.forEach((d: any) => {
+          if (d.district) byDistrict[d.district] = (byDistrict[d.district] || 0) + 1
+          if (d.service_type) byServiceType[d.service_type] = (byServiceType[d.service_type] || 0) + 1
+        })
+
+        stats = { 
+          total, 
+          average_satisfaction: avg_satisfaction,
+          average_quality: avg_quality,
+          average_behavior: avg_behavior,
+          by_district: Object.entries(byDistrict).map(([district, count]) => ({ district, count })),
+          by_service_type: Object.entries(byServiceType).map(([service_type, count]) => ({ service_type, count }))
+        }
+      } else if (tableName === 'investigations') {
+        const total = data.length
+        const resolved = data.filter((d: any) => String(d.status).toLowerCase() === 'resolved' || String(d.status) === 'सम्पन्न').length
+        const ongoing = total - resolved
+        stats = { total, resolved, completed: resolved, ongoing }
+      } else if (tableName === 'ujiri_entries') {
+        const total = data.length
+        const resolved = data.filter((d: any) => String(d.status).toLowerCase() === 'resolved' || String(d.status) === 'फछ्रयौट').length
+        const pending = data.filter((d: any) => String(d.status).toLowerCase() === 'pending' || String(d.status) === 'काम बाँकी').length
+        const in_progress = data.filter((d: any) => String(d.status).toLowerCase() === 'in_progress' || String(d.status) === 'चालु').length
+        const previous_year_total = data.filter((d: any) => d.registration_date && d.registration_date < '2026-07-16').length
+        const current_year_total = total - previous_year_total
+        const byDistrict: Record<string, number> = {}
+        const byMinistry: Record<string, number> = {}
+        const byMonth: Record<string, number> = {}
+        data.forEach((d: any) => {
+          if (d.district) byDistrict[d.district] = (byDistrict[d.district] || 0) + 1
+          if (d.ministry) byMinistry[d.ministry] = (byMinistry[d.ministry] || 0) + 1
+          if (d.registration_date) {
+             const month = d.registration_date.substring(0, 7)
+             byMonth[month] = (byMonth[month] || 0) + 1
+          }
+        })
+        stats = {
+          total, resolved, pending, in_progress, previous_year_total, current_year_total,
+          by_district: Object.entries(byDistrict).map(([district, count]) => ({ district, count })),
+          by_ministry: Object.entries(byMinistry).map(([ministry, count]) => ({ ministry, count })),
+          by_month: Object.entries(byMonth).map(([month, count]) => ({ month, count }))
+        }
+      } else {
+        stats = { total: data.length }
+      }
+
+      return new Response(JSON.stringify({ success: true, data: stats }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+    } else if (idOrAction) {
+      const { data, error } = await baseQuery.eq('id', idOrAction).single()
       if (error) throw error
       return new Response(
         JSON.stringify({ success: true, data }),
@@ -330,13 +484,17 @@ serve(async (req) => {
     } else {
       // Handle filters from URL params
       const filters = Object.fromEntries(url.searchParams.entries())
-      let filteredQuery = query
+      let filteredQuery = baseQuery
 
+      const ignoredParams = ['current_date', 'fiscal_year', 'start_date', 'end_date', 'search', 'page', 'limit']
+      
       for (const [key, value] of Object.entries(filters)) {
-        filteredQuery = filteredQuery.eq(key, value)
+        if (!ignoredParams.includes(key) && value) {
+          filteredQuery = filteredQuery.eq(key, value)
+        }
       }
 
-      const { data, error } = await filteredQuery.select('*').order('created_at', { ascending: false })
+      const { data, error } = await fetchAll(filteredQuery.order('created_at', { ascending: false }))
       if (error) throw error
       return new Response(
         JSON.stringify({ success: true, data }),
