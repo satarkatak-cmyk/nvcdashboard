@@ -612,7 +612,7 @@ document.addEventListener("DOMContentLoaded", function() {
         const rows = result.data || [];
         const formatOfficeMonitoringDate = value => {
             const date = String(value || '').slice(0, 10);
-            return date && /^[0-9०-९]{4}-[0-9०-९]{2}-[0-9०-९]{2}$/.test(date)
+            return date && /^[0-9०-९]{4}-[0-9०-९]{1,2}-[0-9०-९]{1,2}$/.test(date)
                 ? date.replace(/[0-9]/g, digit => '०१२३४५६७८९'[digit])
                 : (date || '-');
         };
@@ -4335,7 +4335,7 @@ document.addEventListener("DOMContentLoaded", function() {
             const rows = result.data || [];
             const formatDressTimeDate = value => {
                 const date = String(value || '').slice(0, 10);
-                return date && /^\d{4}-\d{2}-\d{2}$/.test(date)
+                return date && /^[0-9०-९]{4}-[0-9०-९]{1,2}-[0-9०-९]{1,2}$/.test(date)
                     ? date.replace(/[0-9]/g, digit => '०१२३४५६७८९'[digit])
                     : '-';
             };
