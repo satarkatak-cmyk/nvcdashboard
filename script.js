@@ -7044,11 +7044,21 @@ window.dtdRecords = [
 ];
 
 function dtdComputeStats(rows) {
-    document.getElementById('dtdStatTotal').textContent = rows.length;
-    document.getElementById('dtdStatThisMonth').textContent = 0;
-    document.getElementById('dtdStatTimeViolation').textContent = rows.reduce((s,r)=>s+(r.timeViol>0?1:0),0);
-    document.getElementById('dtdStatDressViolation').textContent = rows.reduce((s,r)=>s+(r.dressViol>0?1:0),0);
-    document.getElementById('dtdStatActionRecommended').textContent = 0;
+    const toNepaliDigits = value => String(value ?? 0).replace(/[0-9]/g, digit => '०१२३४५६७८९'[digit]);
+    const normalizeDate = value => {
+        const str = String(value || '').slice(0, 10).replace(/[०-९]/g, digit => '०१२३४५६७८९'.indexOf(digit));
+        const parts = str.split('-');
+        if (parts.length === 3) return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+        return str;
+    };
+    const currentNepaliYearMonth = normalizeDate(window.NepaliCalendar?.getCurrentDate?.() || '').slice(0, 7);
+    const currentMonthCount = rows.filter(row => normalizeDate(row.date).slice(0, 7) === currentNepaliYearMonth).length;
+
+    document.getElementById('dtdStatTotal').textContent = toNepaliDigits(rows.length);
+    document.getElementById('dtdStatThisMonth').textContent = toNepaliDigits(currentMonthCount);
+    document.getElementById('dtdStatTimeViolation').textContent = toNepaliDigits(rows.reduce((s,r)=>s+(r.timeViol>0?1:0),0));
+    document.getElementById('dtdStatDressViolation').textContent = toNepaliDigits(rows.reduce((s,r)=>s+(r.dressViol>0?1:0),0));
+    document.getElementById('dtdStatActionRecommended').textContent = toNepaliDigits(0);
 }
 
 function dtdRenderTable(rows) {
