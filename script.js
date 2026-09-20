@@ -6176,6 +6176,21 @@ function initializeUjiriVivaran() {
             document.getElementById('ujiriStatInProgress').textContent = inProgressUjuri;
             document.getElementById('ujiriStatResolved').textContent = resolvedUjuri;
             document.getElementById('ujiriStatPending').textContent = pendingUjuri;
+            
+            const totalNum = Number(stats.total) || liveUjiriRows.length || 1;
+            const resolvedPerc = Math.round((Number(stats.resolved) || 0) / totalNum * 100);
+            const pendingPerc = Math.round((Number(stats.pending) || 0) / totalNum * 100);
+            const inProgressPerc = Math.round((Number(stats.in_progress) || 0) / totalNum * 100);
+            
+            const resolvedBadge = document.querySelector('.ujuri-stat-resolved .ujuri-stat-badge');
+            if (resolvedBadge) resolvedBadge.textContent = ujiriNumber(resolvedPerc) + '%';
+            
+            const pendingBadge = document.querySelector('.ujuri-stat-pending .ujuri-stat-badge');
+            if (pendingBadge) pendingBadge.textContent = ujiriNumber(pendingPerc) + '%';
+            
+            const activeBadge = document.querySelector('.ujuri-stat-active .ujuri-stat-badge');
+            if (activeBadge) activeBadge.textContent = ujiriNumber(inProgressPerc) + '%';
+
             const statusTotal = Number(stats.total) || liveUjiriRows.length;
             const statusResolved = Number(stats.resolved) || 0;
             const statusPending = Number(stats.pending) || 0;
