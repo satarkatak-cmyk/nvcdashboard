@@ -6190,6 +6190,21 @@ function initializeUjiriVivaran() {
             
             const activeBadge = document.querySelector('.ujuri-stat-active .ujuri-stat-badge');
             if (activeBadge) activeBadge.textContent = ujiriNumber(inProgressPerc) + '%';
+            
+            const currentFyBadge = document.querySelector('.ujuri-stat-current-fy .ujuri-stat-badge');
+            const prevFyBadge = document.querySelector('.ujuri-stat-prev-fy .ujuri-stat-badge');
+            if (currentFyBadge && prevFyBadge) {
+                if (fiscalYear === '2082/83') {
+                    currentFyBadge.textContent = '२०८२/८३';
+                    prevFyBadge.textContent = '२०८१/८२';
+                } else if (fiscalYear === '2083/84') {
+                    currentFyBadge.textContent = '२०८३/८४';
+                    prevFyBadge.textContent = '२०८२/८३';
+                } else {
+                    currentFyBadge.textContent = 'सबै';
+                    prevFyBadge.textContent = 'सबै';
+                }
+            }
 
             const statusTotal = Number(stats.total) || liveUjiriRows.length;
             const statusResolved = Number(stats.resolved) || 0;
