@@ -6126,7 +6126,7 @@ function initializeUjiriVivaran() {
                 <td>${committeeDecision}</td>
                 <td>${finalDecision}</td>
                 <td>${remarks}</td>
-                <td>${row.assigned_department || '-'}<div class="cm-td-sub">शाखा</div></td>
+                <td>${row.assigned_department || '-'}</td>
                 <td><span class="cm-status cm-status--${statusClass}">${statusLabel}</span></td>
                 <td><div class="ujuri-file-actions">${attachmentActions}</div></td>
                 <td class="cm-actions"><button class="icon-action icon-action--view" title="हेर्नुहोस्"><i class="fas fa-eye"></i></button><button class="icon-action icon-action--edit" title="सम्पादन"><i class="fas fa-edit"></i></button><button class="icon-action icon-action--delete" title="मेटाउनुहोस्"><i class="fas fa-trash"></i></button></td>
