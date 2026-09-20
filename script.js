@@ -230,8 +230,10 @@ document.addEventListener("DOMContentLoaded", function() {
         
         rows.forEach(row => {
             const date = String(row.monitoring_date || '').slice(0, 10);
-            if (date && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
-                const month = parseInt(date.split('-')[1]) - 1;
+            if (date && /^[0-9०-९]{4}-[0-9०-९]{2}-[0-9०-९]{2}$/.test(date)) {
+                // If it's a Nepali digit date, we can map it to English digits for month parsing
+                const engDate = date.replace(/[०-९]/g, d => '०१२३४५६७८९'.indexOf(d));
+                const month = parseInt(engDate.split('-')[1]) - 1;
                 if (month >= 0 && month < 12) {
                     monthCounts[month]++;
                 }
@@ -599,9 +601,9 @@ document.addEventListener("DOMContentLoaded", function() {
         const rows = result.data || [];
         const formatOfficeMonitoringDate = value => {
             const date = String(value || '').slice(0, 10);
-            return date && /^\d{4}-\d{2}-\d{2}$/.test(date)
+            return date && /^[0-9०-९]{4}-[0-9०-९]{2}-[0-9०-९]{2}$/.test(date)
                 ? date.replace(/[0-9]/g, digit => '०१२३४५६७८९'[digit])
-                : '-';
+                : (date || '-');
         };
         updateOfficeMonitoringDashboardStats(rows);
         window.omDetailRecords = rows.map(row => ({
