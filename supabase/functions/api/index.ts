@@ -348,6 +348,15 @@ serve(async (req) => {
     }
   }
 
+  if (tableName === 'ujiri_entries') {
+    const fiscal_year = url.searchParams.get('fiscal_year')
+    if (fiscal_year === '2082/83') {
+      baseQuery = baseQuery.lte('registration_date', '2083-03-32')
+    } else if (fiscal_year === '2083/84') {
+      baseQuery = baseQuery.or('and(registration_date.lte.2083-03-32,status.in.(चालु,काम बाँकी,in_progress,pending)),registration_date.gte.2083-04-01')
+    }
+  }
+
   // GET requests
   if (method === 'GET') {
     if (idOrAction === 'statistics') {
