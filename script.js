@@ -187,8 +187,8 @@ document.addEventListener("DOMContentLoaded", function() {
 
     function updateOfficeMonitoringDashboardStats(rows) {
         const toNepaliDigits = value => String(value ?? 0).replace(/[0-9]/g, digit => '०१२३४५६७८९'[digit]);
-        const currentNepaliYearMonth = window.NepaliCalendar?.getCurrentDate?.()?.slice(0, 7) || '';
         const normalizeDate = value => String(value || '').slice(0, 10).replace(/[०-९]/g, digit => '०१२३४५६७८९'.indexOf(digit));
+        const currentNepaliYearMonth = normalizeDate(window.NepaliCalendar?.getCurrentDate?.() || '').slice(0, 7);
         const currentMonthCount = rows.filter(row => normalizeDate(row.monitoring_date).slice(0, 7) === currentNepaliYearMonth).length;
         const dashboardTotal = document.getElementById('dashboardOfficeMonitoringTotal');
         const dashboardCurrentMonth = document.getElementById('dashboardOfficeMonitoringCurrentMonth');
@@ -198,8 +198,8 @@ document.addEventListener("DOMContentLoaded", function() {
 
     function updateDressTimeDashboardStats(rows) {
         const toNepaliDigits = value => String(value ?? 0).replace(/[0-9]/g, digit => '०१२३४५६७८९'[digit]);
-        const currentNepaliYearMonth = window.NepaliCalendar?.getCurrentDate?.()?.slice(0, 7) || '';
         const normalizeDate = value => String(value || '').slice(0, 10).replace(/[०-९]/g, digit => '०१२३४५६७८९'.indexOf(digit));
+        const currentNepaliYearMonth = normalizeDate(window.NepaliCalendar?.getCurrentDate?.() || '').slice(0, 7);
         const currentMonthCount = rows.filter(row => normalizeDate(row.monitoring_date).slice(0, 7) === currentNepaliYearMonth).length;
         const timeViolations = rows.reduce((sum, row) => sum + (row.time_violation_count || 0), 0);
         const dressViolations = rows.reduce((sum, row) => sum + (row.dress_violation_count || 0), 0);
