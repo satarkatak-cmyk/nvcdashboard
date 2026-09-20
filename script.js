@@ -240,12 +240,13 @@ document.addEventListener("DOMContentLoaded", function() {
         
         rows.forEach(row => {
             const date = String(row.monitoring_date || '').slice(0, 10);
-            if (date && /^[0-9०-९]{4}-[0-9०-९]{2}-[0-9०-९]{2}$/.test(date)) {
+            if (date && /^[0-9०-९]{4}-[0-9०-९]{1,2}-[0-9०-९]{1,2}$/.test(date)) {
                 // If it's a Nepali digit date, we can map it to English digits for month parsing
                 const engDate = date.replace(/[०-९]/g, d => '०१२३४५६७८९'.indexOf(d));
-                const month = parseInt(engDate.split('-')[1]) - 1;
-                if (month >= 0 && month < 12) {
-                    monthCounts[month]++;
+                const monthVal = parseInt(engDate.split('-')[1], 10);
+                if (monthVal >= 1 && monthVal <= 12) {
+                    const monthIdx = (monthVal + 8) % 12;
+                    monthCounts[monthIdx]++;
                 }
             }
         });
