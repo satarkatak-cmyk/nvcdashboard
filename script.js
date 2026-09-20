@@ -6124,7 +6124,7 @@ function initializeUjiriVivaran() {
                 <td>${row.ministry || '-'}</td>
                 <td class="cm-td-desc">${row.complaint_description || '-'}</td>
                 <td>${committeeDecision}</td>
-                <td>${finalDecisionType}</td>
+                <td>${finalDecision}</td>
                 <td>${remarks}</td>
                 <td>${row.assigned_department || '-'}<div class="cm-td-sub">शाखा</div></td>
                 <td><span class="cm-status cm-status--${statusClass}">${statusLabel}</span></td>
