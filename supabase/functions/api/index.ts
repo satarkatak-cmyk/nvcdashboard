@@ -459,9 +459,17 @@ serve(async (req) => {
         const resolved = data.filter((d: any) => String(d.status).toLowerCase() === 'resolved' || String(d.status) === 'फछ्रयौट').length
         const pending = data.filter((d: any) => String(d.status).toLowerCase() === 'pending' || String(d.status) === 'काम बाँकी').length
         const in_progress = data.filter((d: any) => String(d.status).toLowerCase() === 'in_progress' || String(d.status) === 'चालु').length
-        const previous_year_total = data.filter((d: any) => d.registration_date && d.registration_date < '2026-07-16').length
-        
         const fiscalYearParam = url.searchParams.get('fiscal_year')
+        
+        let previous_year_total = 0;
+        if (!fiscalYearParam || fiscalYearParam === 'all') {
+          previous_year_total = data.filter((d: any) => d.registration_date && d.registration_date <= '2083-03-32' && (String(d.status).toLowerCase() === 'in_progress' || String(d.status) === 'चालु' || String(d.status).toLowerCase() === 'pending' || String(d.status) === 'काम बाँकी')).length;
+        } else if (fiscalYearParam === '2082/83') {
+          previous_year_total = data.filter((d: any) => d.registration_date && d.registration_date <= '2082-03-32').length;
+        } else if (fiscalYearParam === '2083/84') {
+          previous_year_total = data.filter((d: any) => d.registration_date && d.registration_date <= '2083-03-32' && (String(d.status).toLowerCase() === 'in_progress' || String(d.status) === 'चालु' || String(d.status).toLowerCase() === 'pending' || String(d.status) === 'काम बाँकी')).length;
+        }
+
         let current_year_total = 0;
         if (!fiscalYearParam || fiscalYearParam === 'all') {
           current_year_total = total;
